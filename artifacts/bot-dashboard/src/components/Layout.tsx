@@ -20,6 +20,7 @@ const NAV = [
   { href: "/products/import", label: "Importar Productos", icon: Upload, indent: true },
   { href: "/agents/edit", label: "Agentes IA", icon: Bot },
   { href: "/ai-providers", label: "Proveedores IA", icon: Cpu },
+  { href: "/github-copilot", label: "GitHub Copilot", icon: BrainCircuit, indent: true },
   { href: "/git-sync", label: "GitHub Sync", icon: Github },
   { label: "─", divider: true },
   { href: "/config", label: "Configuración", icon: Settings },

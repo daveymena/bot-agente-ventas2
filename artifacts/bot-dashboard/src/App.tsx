@@ -16,6 +16,7 @@ import WhatsApp from "@/pages/WhatsApp";
 import AiProviders from "@/pages/AiProviders";
 import ImportProducts from "@/pages/ImportProducts";
 import GitSync from "@/pages/GitSync";
+import GitHubCopilot from "@/pages/GitHubCopilot";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, staleTime: 5000, retry: 1 } },
@@ -36,6 +37,7 @@ function Router() {
         <Route path="/agents/edit" component={AgentsEditor} />
         <Route path="/ai-providers" component={AiProviders} />
         <Route path="/git-sync" component={GitSync} />
+        <Route path="/github-copilot" component={GitHubCopilot} />
         <Route path="/config" component={Config} />
         <Route component={NotFound} />
       </Switch>

@@ -5,8 +5,8 @@ import { Plus, Trash2, Check, Star, Edit2, X, Save, ChevronDown } from "lucide-r
 interface Provider { id: string; name: string; provider: string; apiKey: string; baseUrl?: string; model: string; isActive: boolean; isDefault: boolean; }
 interface ModelsMap { [provider: string]: string[] }
 
-const PROVIDER_COLORS: Record<string, string> = { openai: "text-green-400", groq: "text-orange-400", grok: "text-yellow-400", anthropic: "text-violet-400", openrouter: "text-blue-400" };
-const PROVIDER_LABELS: Record<string, string> = { openai: "OpenAI", groq: "Groq (Llama)", grok: "Grok (xAI)", anthropic: "Anthropic Claude", openrouter: "OpenRouter" };
+const PROVIDER_COLORS: Record<string, string> = { openai: "text-green-400", groq: "text-orange-400", grok: "text-yellow-400", anthropic: "text-violet-400", openrouter: "text-blue-400", github_copilot: "text-purple-400" };
+const PROVIDER_LABELS: Record<string, string> = { openai: "OpenAI", groq: "Groq (Llama)", grok: "Grok (xAI)", anthropic: "Anthropic Claude", openrouter: "OpenRouter", github_copilot: "GitHub Copilot" };
 const BASE = "/api";
 
 const PROVIDER_BASE_URLS: Record<string, string> = {
@@ -140,7 +140,7 @@ export default function AiProviders() {
               {p.isDefault && <span className="absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 px-2 py-1 rounded-full"><Star size={11} fill="currentColor" /> Predeterminado</span>}
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-lg font-bold">
-                  {p.provider === "openai" ? "🤖" : p.provider === "groq" ? "⚡" : p.provider === "grok" ? "🔥" : p.provider === "anthropic" ? "🧠" : "🌐"}
+                  {p.provider === "openai" ? "🤖" : p.provider === "groq" ? "⚡" : p.provider === "grok" ? "🔥" : p.provider === "anthropic" ? "🧠" : p.provider === "github_copilot" ? "🐙" : "🌐"}
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground">{p.name}</h3>

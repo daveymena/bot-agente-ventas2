@@ -12,6 +12,7 @@ import whatsappRouter from "./whatsapp.js";
 import aiProvidersRouter from "./aiProviders.js";
 import importProductsRouter from "./importProducts.js";
 import gitSyncRouter from "./gitSync.js";
+import githubCopilotRouter from "./githubCopilot.js";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(whatsappRouter);
 router.use(aiProvidersRouter);
 router.use(importProductsRouter);
 router.use(gitSyncRouter);
+router.use(githubCopilotRouter);
 
 export default router;

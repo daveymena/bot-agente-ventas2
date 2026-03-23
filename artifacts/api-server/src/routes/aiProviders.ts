@@ -11,6 +11,7 @@ const MODELS: Record<string, string[]> = {
   grok: ["grok-3", "grok-3-mini", "grok-3-fast", "grok-2-1212", "grok-beta"],
   anthropic: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
   openrouter: ["meta-llama/llama-3.1-8b-instruct", "mistralai/mistral-7b-instruct", "google/gemma-2-9b-it"],
+  github_copilot: ["gpt-4o", "gpt-4o-mini", "claude-3.5-sonnet", "claude-3.7-sonnet", "claude-3.7-sonnet-thought", "gemini-2.0-flash", "o3-mini", "o1"],
 };
 
 const BASE_URLS: Record<string, string> = {
