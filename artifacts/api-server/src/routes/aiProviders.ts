@@ -8,8 +8,15 @@ const router: IRouter = Router();
 const MODELS: Record<string, string[]> = {
   openai: ["gpt-5-mini", "gpt-5", "gpt-5.2", "gpt-4o", "gpt-4o-mini", "o4-mini"],
   groq: ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"],
+  grok: ["grok-3", "grok-3-mini", "grok-3-fast", "grok-2-1212", "grok-beta"],
   anthropic: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
   openrouter: ["meta-llama/llama-3.1-8b-instruct", "mistralai/mistral-7b-instruct", "google/gemma-2-9b-it"],
+};
+
+const BASE_URLS: Record<string, string> = {
+  grok: "https://api.x.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
+  anthropic: "https://api.anthropic.com/v1",
 };
 
 router.get("/ai-providers", async (_req, res) => {
