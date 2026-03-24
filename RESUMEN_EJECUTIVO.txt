@@ -1,0 +1,206 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                     RESUMEN EJECUTIVO - BÚSQUEDA DE PRODUCTOS                 ║
+║                      Bot de Ventas Inteligente - Arquitectura                 ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════════
+1. CÓMO FUNCIONA LA BÚSQUEDA DE "PIANO"
+═══════════════════════════════════════════════════════════════════════════════
+
+ENTRADA:
+  Usuario: "Quiero un piano"
+  ↓
+
+PROCESO (6 pasos):
+  
+  Paso 1: classifyIntent()
+    ├─ Pregunta a OpenAI: "¿Cuál es la intención?"
+    └─ Retorna: {intent: "consulta_producto", entities: {product: "piano"}}
+  
+  Paso 2: Get Active Products
+    ├─ Query: SELECT name FROM products WHERE is_active=true
+    └─ Retorna: ["Piano Profesional", "Piano Digital", "Guitarra", ...]
+  
+  Paso 3: searchRelevantProducts()
+    ├─ Pregunta a OpenAI: "¿Qué productos de la lista busca el cliente?"
+    ├─ Normaliza respuesta (elimina caracteres especiales)
+    ├─ Valida coincidencias
+    └─ Retorna: ["Piano Profesional", "Piano Digital"]
+  
+  Paso 4: Query BD
+    ├─ SELECT * FROM products WHERE name IN (...) AND is_active=true
+    └─ Retorna: Objetos de producto con precio, descripción, etc.
+  
+  Paso 5: orchestrate()
+    ├─ Pregunta a OpenAI: "¿Qué agente debe responder?"
+    └─ Retorna: "interes_producto"
+  
+  Paso 6: generateResponse()
+    ├─ Pregunta a OpenAI: "Responde sobre estos pianos: [contexto]"
+    └─ Retorna: "¡Excelente! Tenemos dos opciones: Piano Profesional $5999..."
+
+SALIDA:
+  Respuesta con productos y precios al usuario
+  ✓ Éxito
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. ¿POR QUÉ A VECES FALLA?
+═══════════════════════════════════════════════════════════════════════════════
+
+5 PROBLEMAS PRINCIPALES:
+
+PROBLEMA #1: Producto NO existe en BD
+  ├─ Síntoma: Query retorna 0 filas
+  ├─ Ubicación: Tabla products
+  ├─ Verificar: SELECT COUNT(*) FROM products WHERE name ILIKE '%piano%'
+  └─ Solución: Importar productos (JSON, CSV, o WooCommerce)
+
+PROBLEMA #2: Producto existe pero isActive = FALSE
+  ├─ Síntoma: Existe pero no aparece en búsquedas
+  ├─ Ubicación: Column products.is_active
+  ├─ Verificar: SELECT is_active FROM products WHERE name ILIKE '%piano%'
+  └─ Solución: UPDATE products SET is_active=true WHERE name ILIKE '%piano%'
+
+PROBLEMA #3: LLM NO reconoce el nombre del producto
+  ├─ Síntoma: LLM retorna "none" aunque exista
+  ├─ Ubicación: searchRelevantProducts() en aiService.ts línea 101-108
+  ├─ Causa: Nombre muy diferente (ej: "Teclado de 88 teclas" vs "piano")
+  ├─ Verificar: Ver si producto es intuitivo para cliente
+  └─ Solución: Renombrar producto o agregar sinónimos
+
+PROBLEMA #4: Normalización de string falla
+  ├─ Síntoma: Caracteres especiales en nombre del producto
+  ├─ Ubicación: searchRelevantProducts() línea 118-125
+  ├─ Ejemplo: "Piano—Digital" (guión largo) → "pianodigital" (sin espacio)
+  ├─ Verificar: Nombres con caracteres: — / – \ etc.
+  └─ Solución: Limpiar nombres en BD
+
+PROBLEMA #5: Base de datos desconectada
+  ├─ Síntoma: "Error fetching product context"
+  ├─ Ubicación: DATABASE_URL en .env
+  ├─ Verificar: psql $DATABASE_URL -c "SELECT 1"
+  └─ Solución: Verificar conexión PostgreSQL
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. ARCHIVOS CLAVE - QUIÉN BUSCA QUÉ
+═══════════════════════════════════════════════════════════════════════════════
+
+BÚSQUEDA #1: searchRelevantProducts() 
+  └─ Archivo: artifacts/api-server/src/services/aiService.ts (línea 90-173)
+  ├─ Qué hace: Búsqueda SEMÁNTICA inteligente con LLM
+  ├─ Retorna: Productos MÁS RELEVANTES
+  ├─ Usa: Normalización + validación
+  └─ Nota: Esta es la PRINCIPAL
+
+BÚSQUEDA #2: getProductContext() 
+  └─ Archivo: artifacts/api-server/src/core/router.ts (línea 37-80)
+  ├─ Qué hace: Búsqueda SQL ILIKE (fallback)
+  ├─ Usa: entities.category, entities.brand, entities.product
+  ├─ Retorna: Productos por SQL
+  └─ Nota: Se ejecuta SI #1 falla
+
+BÚSQUEDA #3: En prompt del LLM
+  └─ Archivo: artifacts/api-server/src/core/router.ts (línea 154-163)
+  ├─ Qué hace: LLM tiene lista completa de productos
+  ├─ Para caso: Cuando usuario pide "muestra todo"
+  └─ Nota: Último recurso
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. VALIDACIÓN DE EXISTENCIA - 3 NIVELES
+═══════════════════════════════════════════════════════════════════════════════
+
+NIVEL 1: ¿Existe en BD?
+  └─ Ubicación: router.ts línea 121
+  ├─ Query: SELECT name FROM products WHERE is_active=true
+  └─ Resultado: ["Piano Profesional", "Piano Digital", ...]
+
+NIVEL 2: ¿LLM lo reconoce?
+  └─ Ubicación: aiService.ts línea 90-173
+  ├─ Proceso: Normalización + Validación de coincidencias
+  └─ Resultado: ["Piano Profesional", "Piano Digital"] o []
+
+NIVEL 3: ¿Está activo?
+  └─ Ubicación: router.ts línea 128, 63
+  ├─ Query: WHERE ... AND is_active=true
+  └─ Resultado: Objetos de producto o []
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. ALMACENAMIENTO DE PRODUCTOS - TABLA "products"
+═══════════════════════════════════════════════════════════════════════════════
+
+ESTRUCTURA:
+┌────────────────────────────────────────────────────────────────┐
+│ Column        │ Type        │ Propósito                         │
+├────────────────────────────────────────────────────────────────┤
+│ id            │ SERIAL      │ Identificador único              │
+│ name          │ TEXT        │ ★ CRÍTICO para búsqueda          │
+│ description   │ TEXT        │ Detalles del producto            │
+│ price         │ REAL        │ Precio en USD                    │
+│ category      │ VARCHAR(100)│ Categoría (filtro secundario)   │
+│ brand         │ TEXT        │ Marca (para búsquedas)          │
+│ stock         │ INTEGER     │ Cantidad disponible              │
+│ image_url     │ TEXT        │ URL de imagen                    │
+│ is_active     │ BOOLEAN     │ ★ FILTRO CRÍTICO (default true) │
+│ created_at    │ TIMESTAMP   │ Fecha de creación               │
+└────────────────────────────────────────────────────────────────┘
+
+ARCHIVO: lib/db/src/schema/products.ts
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. LÓGICA DE RESPUESTA CUANDO NO ENCUENTRA
+═══════════════════════════════════════════════════════════════════════════════
+
+IF searchRelevantProducts() retorna productos:
+  └─ Usa esos productos en contexto
+  
+ELSE IF getProductContext() retorna productos:
+  └─ Usa los encontrados por SQL
+  
+ELSE IF hay otros productos activos:
+  └─ Genera: "No tenemos exactamente lo que buscas, pero tenemos..."
+  
+ELSE IF nada:
+  └─ Retorna: botConfig.fallbackMessage (ej: "Disculpa, error técnico")
+
+
+═══════════════════════════════════════════════════════════════════════════════
+7. SOLUCIÓN RÁPIDA - CHECKLIST PASO-A-PASO
+═══════════════════════════════════════════════════════════════════════════════
+
+CUANDO "PIANO" NO SE ENCUENTRA:
+
+[ ] Paso 1: ¿Existe el producto?
+    bash: npm run check:products
+    sql:  SELECT * FROM products WHERE name ILIKE '%piano%'
+    
+[ ] Paso 2: ¿Es isActive = true?
+    sql: UPDATE products SET is_active=true WHERE name ILIKE '%piano%'
+    
+[ ] Paso 3: ¿El nombre es claro?
+    ✗ MALO: "Teclado Electrónico de 88 Teclas"
+    ✓ BUENO: "Piano Digital"
+    sql: UPDATE products SET name='Piano Digital' WHERE id=1
+    
+[ ] Paso 4: ¿Hay caracteres especiales?
+    ✗ MALO: "Piano—Digital" (guión largo)
+    ✓ BUENO: "Piano Digital" (espacio normal)
+    sql: UPDATE products SET name='Piano Digital' WHERE name LIKE '%—%'
+    
+[ ] Paso 5: Probar API
+    curl http://localhost:5000/api/chat/message \
+      -H "Content-Type: application/json" \
+      -d '{"phone": "test", "message": "Quiero piano"}'
+
+
+═══════════════════════════════════════════════════════════════════════════════
+8. IMPORTAR PRODUCTOS (3 OPCIONES)
+═══════════════════════════════════════════════════════════════════════════════
+
+OPCIÓN A: JSON Directo
+curl -X POST http://localhost:5000/api/products/import/json \
+  -H "Content-Type: applicat

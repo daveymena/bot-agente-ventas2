@@ -1,0 +1,120 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║           ARQUITECTURA Y FLUJO - SISTEMA DE BÚSQUEDA DE PRODUCTOS            ║
+║                          Bot de Ventas Inteligente                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════════
+CAPAS DE LA APLICACIÓN
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CAPA 1: EXPRESS HTTP API                             │
+│  POST /api/chat/message  ← Recibe mensajes del usuario (WhatsApp, Web, etc) │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CAPA 2: ROUTER PRINCIPAL (Core Logic)                    │
+│  Archivo: core/router.ts → handleMessage()                                  │
+│  Responsabilidad: Orquestar todo el flujo                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+        ┌─────────────────────────────┼─────────────────────────────┐
+        ↓                             ↓                             ↓
+┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐
+│  CAPA 3a:        │      │  CAPA 3b:        │      │  CAPA 3c:        │
+│  CLASIFICACIÓN   │      │  BÚSQUEDA        │      │  GENERACIÓN      │
+│  DE INTENCIÓN    │      │  DE PRODUCTOS    │      │  DE RESPUESTA    │
+│                  │      │                  │      │                  │
+│ aiService.ts:    │      │ router.ts:       │      │ aiService.ts:    │
+│ classifyIntent() │      │ searchRelevant   │      │ generateResponse │
+│                  │      │ Products()       │      │                  │
+│ ✓ Retorna:       │      │ ✓ Retorna:       │      │ ✓ Retorna:       │
+│ - intent         │      │ - product names  │      │ - texto respuesta│
+│ - confidence     │      │ - product objects│      │                  │
+│ - entities       │      │   (de BD)        │      │                  │
+└──────────────────┘      └──────────────────┘      └──────────────────┘
+        ↓                             ↓                             ↓
+        └─────────────────────────────┼─────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CAPA 4: PERSISTENCIA (Base de Datos)                     │
+│  PostgreSQL + Drizzle ORM                                                   │
+│  Tablas:                                                                     │
+│  ├─ products      (id, name, price, category, brand, stock, is_active)     │
+│  ├─ clients       (id, phone, name, leadStatus, etc)                       │
+│  ├─ conversations (id, clientId, role, message, intent, agent, etc)        │
+│  ├─ agents        (id, key, systemPrompt)                                  │
+│  └─ botConfig     (businessName, personality, paymentMethods, etc)         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+FLUJO DETALLADO PASO-A-PASO: Usuario pregunta "Quiero un piano"
+═══════════════════════════════════════════════════════════════════════════════
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ENTRADA                                                                      │
+│ ────────────────────────────────────────────────────────────────────────────│
+│ POST /api/chat/message                                                      │
+│ {                                                                           │
+│   "phone": "1234567890",                                                   │
+│   "message": "Quiero un piano",                                            │
+│   "clientName": "Juan" (opcional)                                          │
+│ }                                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+                                    ↓
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ PASO 1: OBTENER O CREAR CLIENTE                                             │
+│ ────────────────────────────────────────────────────────────────────────────│
+│ getOrCreateClient(phone, name)                                              │
+│                                                                             │
+│ Query: SELECT * FROM clients WHERE phone='1234567890'                      │
+│ Si no existe: INSERT INTO clients VALUES (...)                            │
+│                                                                             │
+│ Retorna: client object {id: 123, phone, name, leadStatus, ...}           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+                                    ↓
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ PASO 2: OBTENER HISTORIAL DE CONVERSACIÓN                                   │
+│ ────────────────────────────────────────────────────────────────────────────│
+│ getHistory(clientId, limit=20)                                              │
+│                                                                             │
+│ Query: SELECT * FROM conversations                                         │
+│        WHERE clientId=123                                                  │
+│        ORDER BY createdAt DESC                                             │
+│        LIMIT 20                                                             │
+│                                                                             │
+│ Retorna: [                                                                  │
+│   {role: "user", content: "Hola"},                                         │
+│   {role: "assistant", content: "Hola, ¿en qué puedo ayudarte?"},          │
+│   {role: "user", content: "Quiero un piano"}                               │
+│ ]                                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+                                    ↓
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ PASO 3: CLASIFICAR INTENCIÓN                                                │
+│ ────────────────────────────────────────────────────────────────────────────│
+│ classifyIntent("Quiero un piano")                                           │
+│                                                                             │
+│ ┌─ LLM CALL (OpenAI gpt-4o-mini) ─────────────────────────────────────────│
+│ │ SYSTEM:                                                                │
+│ │ "Clasifica la intención del mensaje.                                  │
+│ │  Intenciones: [saludo, despedida, consulta_precio, consulta_producto,│
+│ │               comparacion, compra, ...]                               │
+│ │  Responde SOLO JSON"                                                 │
+│ │                                                                        │
+│ │ USER: "Mensaje: 'Quiero un piano'"                                   │
+│ │                                                                        │
+│ │ RESPONSE (JSON):                                                      │
+│ │ {                                                                     │
+│ │   "intent": "consulta_producto",                                     │
+│ │   "confidence": 0.95,                                                │
+│ │   "entities": {                                                      │
+│ │     "product": "piano",                                              │
+│ │     "cate
