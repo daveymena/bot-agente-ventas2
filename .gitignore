@@ -32,6 +32,9 @@ auth_info_baileys/
 # OS files
 .DS_Store
 Thumbs.db
+.local/
+.cpanel/
+.pnpm-store/
 
 # Logs
 *.log

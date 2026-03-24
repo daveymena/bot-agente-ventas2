@@ -15,10 +15,25 @@ export interface IntentResult {
 }
 
 const INTENTS = [
-  "saludo", "despedida", "consulta_precio", "consulta_producto",
-  "comparacion", "compra", "pedido", "objecion_precio", "soporte",
-  "reclamo", "especificacion_tecnica", "metodo_pago", "facturacion",
-  "ubicacion", "horario", "exportacion", "importacion", "envio_internacional", "desconocido",
+  "saludo",
+  "despedida",
+  "consulta_precio",
+  "consulta_producto",
+  "comparacion",
+  "compra",
+  "pedido",
+  "objecion_precio",
+  "soporte",
+  "reclamo",
+  "especificacion_tecnica",
+  "metodo_pago",
+  "facturacion",
+  "ubicacion",
+  "horario",
+  "exportacion",
+  "importacion",
+  "envio_internacional",
+  "desconocido",
 ];
 
 async function getClient(): Promise<{ client: OpenAI; model: string }> {
@@ -33,7 +48,9 @@ async function getClient(): Promise<{ client: OpenAI; model: string }> {
       });
       return { client, model: provider.model };
     }
-  } catch { /* fallback */ }
+  } catch {
+    /* fallback */
+  }
 
   return {
     client: new OpenAI({
@@ -61,12 +78,19 @@ Responde SOLO JSON: {"intent":"...","confidence":0.9,"entities":{"category":"...
       max_completion_tokens: 150,
     });
     const r = JSON.parse(completion.choices[0]?.message?.content || "{}");
-    return { intent: r.intent || "desconocido", confidence: Math.min(1, Math.max(0, r.confidence || 0.5)), entities: r.entities || {} };
+    return {
+      intent: r.intent || "desconocido",
+      confidence: Math.min(1, Math.max(0, r.confidence || 0.5)),
+      entities: r.entities || {},
+    };
   } catch {
     return { intent: "desconocido", confidence: 0, entities: {} };
   }
 }
-export async function searchRelevantProducts(message: string, productNames: string[]): Promise<string[]> {
+export async function searchRelevantProducts(
+  message: string,
+  productNames: string[],
+): Promise<string[]> {
   try {
     const { client } = await getClient();
     const completion = await client.chat.completions.create({
@@ -87,28 +111,82 @@ Responde SOLO con los nombres exactos separados por comas, o "none".`,
       ],
       temperature: 0,
     });
-    
+
     const text = completion.choices[0]?.message?.content || "";
-    if (text.toLowerCase() === "none") return [];
-    return text.split(",").map(t => t.trim()).filter(t => productNames.includes(t));
+
+    // Normalization helper: remove diacritics, punctuation, emojis and collapse spaces
+    const normalize = (s: string) =>
+      s
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/[^a-z0-9\s]/gi, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+
+    if (normalize(text) === "none") return [];
+
+    // Build map of normalized product name -> original
+    const normMap = new Map<string, string>();
+    for (const n of productNames) {
+      normMap.set(normalize(n), n);
+    }
+
+    // Try to parse LLM output by common separators, and match normalized tokens
+    const candidates = text
+      .split(/[,\n;|•\-]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    const results = new Set<string>();
+
+    for (const c of candidates) {
+      const nn = normalize(c);
+      if (normMap.has(nn)) {
+        results.add(normMap.get(nn)!);
+        continue;
+      }
+
+      // If not exact, try substring match: check if any product normalized name appears inside token or viceversa
+      for (const [k, orig] of normMap.entries()) {
+        if (k.length === 0) continue;
+        if (nn.includes(k) || k.includes(nn)) {
+          results.add(orig);
+        }
+      }
+    }
+
+    // Fallback: if LLM output didn't match, try searching the whole LLM text for product names
+    if (results.size === 0) {
+      const full = normalize(text);
+      for (const [k, orig] of normMap.entries()) {
+        if (k && full.includes(k)) results.add(orig);
+      }
+    }
+
+    return Array.from(results)
+      .filter((t) => productNames.includes(t))
+      .slice(0, 5);
   } catch {
     return [];
   }
 }
 
 export async function orchestrate(
-  message: string, 
+  message: string,
   history: Array<{ role: "user" | "assistant"; content: string }>,
-  businessContext?: string
+  businessContext?: string,
 ): Promise<string> {
   try {
     const { client } = await getClient();
-    
-    const agent = await db.query.agentsTable.findFirst({ 
-      where: eq(agentsTable.key, 'orchestrator') 
+
+    const agent = await db.query.agentsTable.findFirst({
+      where: eq(agentsTable.key, "orchestrator"),
     });
 
-    const systemPrompt = agent?.systemPrompt || `Eres el ORQUESTADOR de ventas.
+    const systemPrompt =
+      agent?.systemPrompt ||
+      `Eres el ORQUESTADOR de ventas.
 Tu única tarea es devolver el nombre del agente adecuado según el mensaje y contexto.
 
 AGENTES DISPONIBLES:
@@ -132,15 +210,17 @@ Responde SOLO el nombre del agente en minúsculas.`;
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
-        ...history.slice(-5).map(h => ({ role: h.role, content: h.content })),
+        ...history.slice(-5).map((h) => ({ role: h.role, content: h.content })),
         { role: "user", content: `MENSAJE CLIENTE: "${message}"` },
       ],
       max_completion_tokens: 20,
       temperature: 0,
     });
-    
-    const decision = completion.choices[0]?.message?.content?.toLowerCase().trim() || "descubrimiento";
-    const cleanDecision = decision.replace(/[^a-z_]/g, '');
+
+    const decision =
+      completion.choices[0]?.message?.content?.toLowerCase().trim() ||
+      "descubrimiento";
+    const cleanDecision = decision.replace(/[^a-z_]/g, "");
     return cleanDecision;
   } catch (err) {
     console.error("Orchestration error:", err);
@@ -152,7 +232,7 @@ export async function generateResponse(
   systemPrompt: string,
   context: string,
   userMessage: string,
-  history: Array<{ role: "user" | "assistant"; content: string }>
+  history: Array<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
   try {
     const { client, model } = await getClient();
@@ -167,7 +247,10 @@ export async function generateResponse(
       max_completion_tokens: 600,
       temperature: 0.85,
     } as OpenAI.ChatCompletionCreateParamsNonStreaming);
-    return completion.choices[0]?.message?.content || "Lo siento, no pude procesar tu mensaje.";
+    return (
+      completion.choices[0]?.message?.content ||
+      "Lo siento, no pude procesar tu mensaje."
+    );
   } catch {
     return "Estoy teniendo dificultades técnicas. Por favor intenta en un momento.";
   }
