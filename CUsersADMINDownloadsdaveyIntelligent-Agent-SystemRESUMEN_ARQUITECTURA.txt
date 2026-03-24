@@ -1,0 +1,211 @@
+================================================================================
+ANALISIS DE ARQUITECTURA - SISTEMA DE BOTS CONVERSACIONALES
+Fecha: 24 de Marzo de 2026
+================================================================================
+
+1. ESTRUCTURA PRINCIPAL
+================================================================================
+
+MONOREPO (pnpm workspace):
+
+Intelligent-Agent-System/
+├── artifacts/
+│   ├── api-server/               # Backend Express + Node.js 24
+│   │   ├── src/
+│   │   │   ├── core/router.ts    # Orquestador central
+│   │   │   ├── services/         # aiService.ts, whatsappService.ts
+│   │   │   ├── agents/           # 4 agentes especializados
+│   │   │   └── routes/           # Endpoints REST (16 rutas)
+│   │   └── package.json          # Express 5, OpenAI 6.32.0, Drizzle
+│   ├── bot-dashboard/            # Frontend React 19
+│   └── mockup-sandbox/           # Testing
+│
+├── lib/
+│   ├── db/                       # Drizzle ORM con 8 tablas
+│   ├── api-spec/                 # OpenAPI spec
+│   ├── api-zod/                  # Validación Zod
+│   └── api-client-react/         # Cliente HTTP
+│
+├── package.json                  # Workspace pnpm
+└── docker-compose.yml            # Orquestación
+
+STACK TECNOLÓGICO:
+  Backend:     Node.js 24 | Express 5 | TypeScript 5.9.2
+  BD:          PostgreSQL 15+ | Drizzle ORM
+  IA:          OpenAI GPT-4o | GitHub Models
+  Frontend:    React 19 | TypeScript
+  Validación:  Zod v4
+  WhatsApp:    @whiskeysockets/baileys 7.0.0-rc.9
+
+
+2. TIPOS DE AGENTES (4 Especializados)
+================================================================================
+
+SALES AGENT (salesAgent.ts)
+  Intenciones: saludo, despedida, consulta_precio, consulta_producto, 
+               comparacion, compra, objecion_precio, metodo_pago, desconocido
+  Features:    Búsqueda de productos, contexto dinámico, métodos de pago
+  
+SUPPORT AGENT (supportAgent.ts)
+  Intenciones: soporte, reclamo
+  Features:    Empatía, validación de sentimientos, escalamiento
+  
+TECHNICAL AGENT (technicalAgent.ts)
+  Intenciones: especificacion_tecnica, comparacion
+  Features:    Detalles técnicos, tablas comparativas, recomendaciones
+  
+ADMIN AGENT (adminAgent.ts)
+  Intenciones: facturacion, ubicacion, horario, exportacion, importacion,
+               envio_internacional, pedido
+  Features:    Gestión administrativa, información del negocio
+
+
+3. CONFIGURACIÓN DE PRODUCTOS
+================================================================================
+
+Tabla: products
+┌─────────────────────────────────────────────────────────────┐
+│ id (PK) | name | description | price | category | brand     │
+│ stock | image_url | is_active | created_at                   │
+└─────────────────────────────────────────────────────────────┘
+
+Búsqueda Inteligente (2 estrategias):
+  1. SEMÁNTICA: GPT-4o-mini evalúa relevancia de cada producto
+  2. SQL FALLBACK: Búsqueda por entidades (category, brand, name)
+                   Usa ILIKE (case-insensitive)
+
+Importación: Excel, CSV, JSON
+  Mapeo automático: name, price, category, brand, stock, description
+
+Rutas:
+  GET  /products                 # Listar (con paginación)
+  POST /products                 # Crear
+  PUT  /products/:id             # Actualizar
+  DELETE /products/:id           # Soft delete (is_active=false)
+
+
+4. FLUJO CONVERSACIONAL (Detalles)
+================================================================================
+
+POST /chat/message
+  Input:  { phone, message, clientName? }
+  Output: { response, intent, agent, confidence, clientId, processingTime }
+
+Pasos del flujo:
+  1. getOrCreateClient(phone)     → Crea cliente si no existe
+  2. getBotConfig()               → Obtiene configuración global del bot
+  3. getHistory(clientId, 10)     → Obtiene últimos 10 mensajes
+  4. classifyIntent(message)      → GPT-4o-mini: detecta intención + entidades
+  5. searchRelevantProducts()     → GPT-4o: búsqueda semántica
+  6. getProductContext()          → Fallback: búsqueda SQL
+  7. getKnowledgeContext()        → Base de conocimiento (FAQs)
+  8. orchestrate()                → GPT-4o: elige qué agente
+  9. getAgentPrompt()             → Obtiene system prompt del agente
+  10. generateResponse()          → GPT-4o: genera respuesta final
+  11. INSERT conversations        → Guarda en BD (usuario + bot)
+  12. UPDATE clients              → Actualiza lead scoring
+
+Lead Scoring:
+  - purchaseProbability += 20 si intent es "compra" o "pedido"
+  - leadStatus: cold → warm (prob >= 40) → hot (prob >= 70)
+  - totalInteractions += 1
+  - lastInteraction = now()
+
+
+5. BASE DE DATOS (PostgreSQL + Drizzle ORM)
+================================================================================
+
+TABLA 1: agents
+  Campos: id (PK) | key (UNIQUE) | name | description | 
+          system_prompt | handled_intents | is_active | updated_at
+  Propósito: Definición de los 4 agentes
+
+TABLA 2: products
+  Campos: id (PK) | name | description | price | category | brand |
+          stock | image_url | is_active | created_at
+  Propósito: Catálogo de productos
+
+TABLA 3: conversations
+  Campos: id (PK) | client_id | role (user/bot) | message |
+          intent | agent | confidence | created_at
+  Propósito: Histórico de conversaciones
+
+TABLA 4: clients
+  Campos: id (PK) | phone (UNIQUE) | name | email |
+          lead_status | purchase_probability | technical_level |
+          total_interactions | last_interaction | created_at
+  Propósito: Gestión de clientes y lead scoring
+
+TABLA 5: bot_config
+  Campos: id (PK singleton) | bot_name | personality | language |
+          greeting_message | fallback_message | max_context_messages |
+          is_active | business_name | business_type |
+          payment_methods | working_hours | updated_at
+  Propósito: Configuración global del bot (UNA sola fila)
+
+TABLA 6: ai_providers
+  Campos: id (PK) | name | provider | api_key | base_url |
+          model | is_active | is_default | created_at
+  Propósito: Soporte multi-proveedor IA (OpenAI, Groq, Anthropic, etc)
+
+TABLA 7: conversation_knowledge
+  Campos: id (PK) | user_query | bot_response | context |
+          confidence | usage_count | success_rate |
+          created_at | last_used_at | product_id | product_name
+  Propósito: Base de conocimiento de FAQs exitosas
+
+TABLA 8: tenants + auth_users (SaaS multi-tenant)
+  Propósito: Soporte para múltiples clientes en producción
+
+
+6. RUTAS PRINCIPALES (16 endpoints)
+================================================================================
+
+Chat y Conversación:
+  POST /chat/message              # Principal: enviar mensaje
+  GET  /conversations             # Historial (con filters)
+  POST /admin-chat/message        # Chat para admins
+
+Gestión de Productos:
+  GET  /products                  # Listar (paginado)
+  POST /products                  # Crear
+  PUT  /products/:id              # Actualizar
+  DELETE /products/:id            # Eliminar (soft)
+  POST /import-products           # Importar Excel/CSV/JSON
+
+Agentes:
+  GET  /agents/status             # Estado de agentes + métricas
+  POST /agents-editor             # Editor de prompts
+
+Clientes:
+  GET  /clients                   # Listar (con lead_status filter)
+  PUT  /clients/:id               # Actualizar
+
+Configuración:
+  GET  /bot-config                # Obtener configuración
+  PUT  /bot-config                # Actualizar configuración
+  GET  /ai-providers              # Listar proveedores IA
+  POST /ai-providers              # Agregar proveedor
+
+Otros:
+  GET  /health                    # Health check
+  GET  /metrics                   # Estadísticas
+  POST /whatsapp                  # Webhook WhatsApp
+
+
+7. PRIORIDAD DE PROVEEDORES IA
+================================================================================
+
+1. GITHUB_TOKEN (env)             ← Máxima prioridad
+   - GitHub Copilot Models
+   - Endpoint: https://models.inference.ai.azure.com
+   - Models: gpt-4o, gpt-4o-mini, etc
+
+2. DB ai_providers table          ← Segunda opción
+   - OpenAI
+   - Groq
+   - Anthropic
+   - Grok (xAI)
+   - OpenRouter
+   
+3. Fallback                       ← Últi

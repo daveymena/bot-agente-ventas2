@@ -1,3 +1,6 @@
+// Load environment variables first
+import "dotenv/config.js";
+
 import app from "./app";
 import { logger } from "./lib/logger";
 

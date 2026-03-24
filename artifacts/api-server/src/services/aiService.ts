@@ -37,6 +37,18 @@ const INTENTS = [
 ];
 
 async function getClient(): Promise<{ client: OpenAI; model: string }> {
+  // 1. PRIORITIZE ENV GITHUB_TOKEN
+  if (process.env.GITHUB_TOKEN) {
+    return {
+      client: new OpenAI({
+        baseURL: process.env.GITHUB_BASE_URL || "https://models.inference.ai.azure.com",
+        apiKey: process.env.GITHUB_TOKEN,
+      }),
+      model: process.env.GITHUB_MODEL || "gpt-4o",
+    };
+  }
+
+  // 2. Fallback to DB providers
   try {
     const provider = await db.query.aiProvidersTable.findFirst({
       where: eq(aiProvidersTable.isDefault, true),
@@ -48,14 +60,15 @@ async function getClient(): Promise<{ client: OpenAI; model: string }> {
       });
       return { client, model: provider.model };
     }
-  } catch {
-    /* fallback */
+  } catch (err: any) {
+    console.error("DEBUG: DB provider fetch failed", err?.message);
   }
 
+  // Final fallback
   return {
     client: new OpenAI({
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: "https://models.inference.ai.azure.com",
+      apiKey: "none",
     }),
     model: "gpt-4o",
   };
@@ -83,7 +96,8 @@ Responde SOLO JSON: {"intent":"...","confidence":0.9,"entities":{"category":"...
       confidence: Math.min(1, Math.max(0, r.confidence || 0.5)),
       entities: r.entities || {},
     };
-  } catch {
+  } catch (err: any) {
+    console.error("DEBUG: classifyIntent FAILED!", err?.message);
     return { intent: "desconocido", confidence: 0, entities: {} };
   }
 }
@@ -191,8 +205,8 @@ Responde SOLO con los nombres exactos separados por comas, o "none".`,
     return Array.from(results)
       .filter((t) => productNames.includes(t))
       .slice(0, 5);
-  } catch (err) {
-    console.error("searchRelevantProducts error:", err);
+  } catch (err: any) {
+    console.error("DEBUG: searchRelevantProducts FAILED!", err?.message);
     return [];
   }
 }
@@ -247,8 +261,8 @@ Responde SOLO el nombre del agente en minúsculas.`;
       "descubrimiento";
     const cleanDecision = decision.replace(/[^a-z_]/g, "");
     return cleanDecision;
-  } catch (err) {
-    console.error("Orchestration error:", err);
+  } catch (err: any) {
+    console.error("DEBUG: orchestrate FAILED!", err?.message);
     return "descubrimiento";
   }
 }
@@ -270,13 +284,14 @@ export async function generateResponse(
       model,
       messages,
       max_completion_tokens: 600,
-      temperature: 0.85,
+      temperature: 0.4,
     } as OpenAI.ChatCompletionCreateParamsNonStreaming);
     return (
       completion.choices[0]?.message?.content ||
       "Lo siento, no pude procesar tu mensaje."
     );
-  } catch {
+  } catch (err: any) {
+    console.error("DEBUG: generateResponse FAILED!", err?.message, err?.response?.data || "");
     return "Estoy teniendo dificultades técnicas. Por favor intenta en un momento.";
   }
 }
